@@ -6,7 +6,6 @@ const AUTH_HEADERS = API_KEY ? {
     "Authorization": `Bearer ${API_KEY}`
 } : {};
 
-// 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 -- for testing
 let GROQ_API_KEY = localStorage.getItem("GROQ_API_KEY") || "";
 function setGroqApiKey(key) {
     GROQ_API_KEY = key;
