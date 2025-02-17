@@ -1,11 +1,17 @@
 import { usePuter } from "./puter.js";
-import configuration from "./configuration.js";
 
 const API_KEY = ""; // Get yours at https://platform.sulu.sh/apis/judge0
 
 const AUTH_HEADERS = API_KEY ? {
     "Authorization": `Bearer ${API_KEY}`
 } : {};
+
+// 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 -- for testing
+let GROQ_API_KEY = localStorage.getItem("GROQ_API_KEY") || "";
+function setGroqApiKey(key) {
+    GROQ_API_KEY = key;
+    localStorage.getItem("GROQ_API_KEY", key);
+}
 
 const CE = "CE";
 const EXTRA_CE = "EXTRA_CE";
@@ -53,54 +59,66 @@ var layoutConfig = {
         reorderEnabled: true
     },
     content: [{
-        type: configuration.get("appOptions.mainLayout"),
+        type: "row",
         content: [{
-            type: "component",
-            width: 66,
-            componentName: "source",
-            id: "source",
-            title: "Source Code",
-            isClosable: false,
-            componentState: {
-                readOnly: false
-            }
-        }, {
-            type: configuration.get("appOptions.assistantLayout"),
-            title: "AI Assistant and I/O",
-            content: [configuration.get("appOptions.showAIAssistant") ? {
+            type: "row",
+            width: 70,
+            content: [{
                 type: "component",
-                height: 66,
-                componentName: "ai",
-                id: "ai",
-                title: "AI Assistant",
+                width: 66,
+                componentName: "source",
+                id: "source",
+                title: "Source Code",
                 isClosable: false,
                 componentState: {
                     readOnly: false
                 }
-            } : null, {
-                type: configuration.get("appOptions.ioLayout"),
-                title: "I/O",
-                content: [
-                    configuration.get("appOptions.showInput") ? {
-                        type: "component",
-                        componentName: "stdin",
-                        id: "stdin",
-                        title: "Input",
-                        isClosable: false,
-                        componentState: {
-                            readOnly: false
-                        }
-                    } : null, configuration.get("appOptions.showOutput") ? {
-                        type: "component",
-                        componentName: "stdout",
-                        id: "stdout",
-                        title: "Output",
-                        isClosable: false,
-                        componentState: {
-                            readOnly: true
-                        }
-                    } : null].filter(Boolean)
-            }].filter(Boolean)
+            }, {
+                type: "column",
+                content: [{
+                    type: "component",
+                    height: 66,
+                    componentName: "ai",
+                    id: "ai",
+                    title: "AI Assistant",
+                    isClosable: false,
+                    componentState: {
+                        readOnly: false
+                    }
+                }, {
+                    type: "stack",
+                    content: [
+                        {
+                            type: "component",
+                            componentName: "stdin",
+                            id: "stdin",
+                            title: "Input",
+                            isClosable: false,
+                            componentState: {
+                                readOnly: false
+                            }
+                        }, {
+                            type: "component",
+                            componentName: "stdout",
+                            id: "stdout",
+                            title: "Output",
+                            isClosable: false,
+                            componentState: {
+                                readOnly: true
+                            }
+                        }]
+                }]
+            }]
+        }, {
+            type: "component",
+            width: 30,
+            componentName: "chat",
+            id: "chat",
+            title: "Jodge0 Assistant",
+            isClosable: false,
+            componentState: {
+                readOnly: true
+            }
         }]
     }]
 };
@@ -579,7 +597,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
             monaco.languages.registerInlineCompletionsProvider('*', {
                 provideInlineCompletions: async (model, position) => {
-                    if (!puter.auth.isSignedIn() || !document.getElementById("judge0-inline-suggestions").checked || !configuration.get("appOptions.showAIAssistant")) {
+                    if (!puter.auth.isSignedIn() || !document.getElementById("judge0-inline-suggestions").checked) {
                         return;
                     }
 
@@ -674,6 +692,174 @@ document.addEventListener("DOMContentLoaded", async function () {
             });
         });
 
+        layout.registerComponent("chat", function (container, state) {
+            const savedApiKey = localStorage.getItem("groqApiKey") || "";
+
+            const chatContainer = document.createElement("div");
+            chatContainer.className = "chat-container flex flex-col h-full bg-[#1e1e1e]";
+            chatContainer.innerHTML = `
+                <div class="header bg-black border-b border-[#e3e3e3] p-4">
+                    <div class="header-info space-y-1">
+                        <h3 class="text-white">Judge0 AI Assistant</h3>
+                        <div id="api-section" class="flex items-center gap-2">
+                            <input type="password" id="groq-api-key"
+                                class="flex-1 text-sm rounded border-2 px-2 py-1 focus:outline-none focus:border-blue" placeholder="GROQ API key"
+                                value="${savedApiKey}"
+                                ${savedApiKey ? 'disabled' : ''}
+                            />
+                            <button id="save-key" class="bg-blue hover:bg-[#006bb3] text-white text-sm px-2 py-1 rounded">${savedApiKey ? "Update" : "Save"}</button>
+                        </div>
+                        <p class="text-sm text-white">Start the debug process below. We know you need it.</p>
+                    </div>
+                </div>
+                <div class="messages flex-1 overflow-y-auto p-3 space-y-4"></div>
+                <div class="p-4">
+                    <div class="flex gap-2">
+                        <textarea class="flex-1 bg-[#1e1e1e] text-white rounded-lg border-2 p-3 focus:outline-none focus:border-blue resize-none" rows="1" placeholder="Question here..."></textarea>
+                        <button class="send flex items-center gap-2 bg-blue-700 hover:bg-blue-500 text-white px-4 py-1 rounded-lg" title="Send message (Enter)">
+                            <span>Send</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            const apiSection = chatContainer.querySelector("#api-section");
+            const messages = chatContainer.querySelector(".messages");
+            const input = chatContainer.querySelector("textarea");
+            const sendBtn = chatContainer.querySelector(".send");
+
+            function userMsg(message) {
+                const msgHTML = `
+                    <div class="flex justify-end">
+                        <div class="bg-blue-700 text-white rounded-2xl px-4 py-2 max-w-[70%]">
+                            <div class="msg-content">${message}</div>
+                            <div class="timestamp text-xs mt-2">${msgTimestamp()}</div>
+                        </div>
+                    </div>
+                `;
+                messages.insertAdjacentHTML('beforeend', msgHTML);
+            }
+
+            function AiMsg(message) {
+                const AiMsgHTML = `
+                    <div class="flex justify-start">
+                        <div class="bg-gray-700 text-white rounded-2xl px-4 py-2 max-w-[70%]">
+                            <div class="msg-content">${message}</div>
+                            <div class="timestamp text-xs mt-2">${msgTimestamp()}</div>
+                        </div>
+                    </div>
+                `;
+                messages.insertAdjacentHTML('beforeend', AiMsgHTML);
+            }
+
+            function msgTimestamp() {
+                const curr = new Date();
+                return curr.toLocaleTimeString('en-us', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: false
+                });
+            }
+
+            async function sendMessage() {
+                const message = input.value.trim();
+                if (!message) return;
+                input.value = "";
+                // input.style.height = "64px";
+
+                userMsg(message);
+                // need to extract the user msg
+                const context = {
+                    source_code: sourceEditor.getValue(),
+                    language: $selectLanguage.find(":selected").text(),
+                    stdin: stdinEditor.getValue(),
+                    stdout: stdoutEditor.getValue(),
+                }
+
+                try {
+                    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: "POST",
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${GROQ_API_KEY}`,
+                            'HTTP-Referer': window.location.origin,
+                            'X-Title': 'Judge0 IDE'
+                        },
+                        body: JSON.stringify({
+                            model: "llama-3.1-8b-instant",
+                            messages: [
+                                {
+                                    role: "system",
+                                    content: `You are an expert programmer who is assisting with this code. You have the following code context:
+                                        Language: ${context.language}
+                                        Source Code:
+                                        ${context.source_code}
+                                        ${context.stdin ? `Input:\n${context.stdin}\n` : ""}
+                                        ${context.stdout ? `Output:\n${context.stdout}\n` : ""}
+    
+                                        Make sure to give the user a clear, concise, and accurate response with key details about the code.
+                                        When or if suggesting changes in the code, please explain the reasoning and ensure that they follow best practices.
+                                    `
+                                }, {
+                                    role: "user",
+                                    content: `
+                                        The user's message is as follows:
+    
+                                        ${message}
+                                        Provide a detailed and accurate response to the user's message based on their code context. Explain the changes that you might make and give your reason as to why. Enusre that they follow best coding practices.
+                                    `
+                                }
+                            ]
+                        })
+                    })
+
+                    if (!response.ok) {
+                        throw new Error(`API request failed: ${response.statusText}`);
+                    }
+                    const data = await response.json();
+                    const AiRes = data.choices[0].message.content;
+
+                    console.log("data", data);
+                    AiMsg(AiRes);
+                } catch (err) {
+                    console.error("Error", err);
+                    AiMsg("Sorry, something went wrong went processing your request. Please make sure your GROQ API is set up correctly.")
+                }
+            }
+
+            sendBtn.addEventListener("click", sendMessage);
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            })
+
+            const apiKeyInput = chatContainer.querySelector("#groq-api-key");
+            const saveKeyBtn = chatContainer.querySelector("#save-key");
+
+            saveKeyBtn.addEventListener("click", () => {
+                const newKey = apiKeyInput.value.trim();
+                setGroqApiKey(newKey);
+                AiMsg("API key saved.");
+            });
+
+            // save the groq API key and hide input
+            saveKeyBtn.addEventListener("click", () => {
+                const newKey = apiKeyInput.value.trim();
+                if (!newKey) {
+                    alert("Please enter a valid API key.");
+                    return;
+                }
+
+                localStorage.setItem("groqApiKey", newKey);
+                apiSection.classList.add("hidden");
+                alert("API key saved successfully.");
+            });
+
+            container.getElement().append(chatContainer);
+        });
+
         layout.registerComponent("ai", function (container, state) {
             container.getElement()[0].appendChild(document.getElementById("judge0-chat-container"));
         });
@@ -748,8 +934,6 @@ document.addEventListener("DOMContentLoaded", async function () {
             if (e.data.api_key) {
                 AUTH_HEADERS["Authorization"] = `Bearer ${e.data.api_key}`;
             }
-        } else if (e.data.action === "run") {
-            run();
         }
     };
 });
