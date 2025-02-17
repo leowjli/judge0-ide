@@ -12,6 +12,19 @@ function setGroqApiKey(key) {
     localStorage.getItem("GROQ_API_KEY", key);
 }
 
+let Selected = localStorage.getItem("Selected") || "llama-3.1-8b-instant";
+function setSelectedModel(modelId) {
+    Selected = modelId;
+    localStorage.setItem("Selected", modelId);
+}
+
+const models = [
+    {id: "deepseek-r1-distill-llama-70b", name: "Deep Seek R1 (Llama)"},
+    {id: "deepseek-r1-distill-qwen-32b", name: "Deep Seek R1 (Qwen)"},
+    {id: "gemma2-9b-it", name: "Gemma2 9b"},
+    {id: "llama-3.1-8b-instant", name: "Llama 3.1 8b Instant"},
+];
+
 const CE = "CE";
 const EXTRA_CE = "EXTRA_CE";
 
@@ -708,6 +721,15 @@ document.addEventListener("DOMContentLoaded", async function () {
                             />
                             <button id="save-key" class="bg-blue hover:bg-[#006bb3] text-white text-sm px-2 py-1 rounded">${savedApiKey ? "Update" : "Save"}</button>
                         </div>
+                        <div class="flex items-center gap-4">
+                            <select id="llm-select" class="flex-1 text-sm rounded border px-2 py-1 focus:outline-none focus:border-blue-500">
+                                ${models.map(model => `
+                                    <option value="${model.id}" ${model.id === Selected ? "selected" : ""}>
+                                        ${model.name}
+                                    </option>
+                                `).join("")}
+                            </select>
+                        </div>
                         <p class="text-sm text-white">Start the debug process below. We know you need it.</p>
                     </div>
                 </div>
@@ -726,6 +748,9 @@ document.addEventListener("DOMContentLoaded", async function () {
             const messages = chatContainer.querySelector(".messages");
             const input = chatContainer.querySelector("textarea");
             const sendBtn = chatContainer.querySelector(".send");
+            const apiKeyInput = chatContainer.querySelector("#groq-api-key");
+            const saveKeyBtn = chatContainer.querySelector("#save-key");
+            const selectModel = chatContainer.querySelector("#llm-select");
 
             function userMsg(message) {
                 const msgHTML = `
@@ -785,7 +810,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                             'X-Title': 'Judge0 IDE'
                         },
                         body: JSON.stringify({
-                            model: "llama-3.1-8b-instant",
+                            model: Selected,
                             messages: [
                                 {
                                     role: "system",
@@ -832,10 +857,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                     e.preventDefault();
                     sendMessage();
                 }
-            })
-
-            const apiKeyInput = chatContainer.querySelector("#groq-api-key");
-            const saveKeyBtn = chatContainer.querySelector("#save-key");
+            });
 
             saveKeyBtn.addEventListener("click", () => {
                 const newKey = apiKeyInput.value.trim();
@@ -854,6 +876,11 @@ document.addEventListener("DOMContentLoaded", async function () {
                 localStorage.setItem("groqApiKey", newKey);
                 apiSection.classList.add("hidden");
                 alert("API key saved successfully.");
+            });
+
+            selectModel.addEventListener("change", (e) => {
+                setSelectedModel(e.target.value);
+                AiMsg(`Now using ${models.find(model => model.id === e.target.value).name}`);
             });
 
             container.getElement().append(chatContainer);
